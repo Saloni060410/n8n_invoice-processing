@@ -1,0 +1,900 @@
+{
+  "name": "invoice",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyX",
+              "value": 5,
+              "unit": "minutes"
+            }
+          ]
+        },
+        "filters": {
+          "labelIds": [
+            "INBOX"
+          ],
+          "q": "has:attachment"
+        }
+      },
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -64,
+        208
+      ],
+      "id": "8b6aa2ba-b385-41ed-9056-9c3628f1c0e2",
+      "name": "Gmail Trigger",
+      "alwaysOutputData": true,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "dDrwXXCy7Ml45LfF",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "06374c9c-2d88-4928-8071-155e3add8765",
+              "leftValue": "={{ $json.Subject }}",
+              "rightValue": "invoice",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        112,
+        208
+      ],
+      "id": "97db8cba-f528-4a18-adfd-ab09b400a60f",
+      "name": "if subject : invoice"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "messageId": "={{ $json.id }}",
+        "simple": false,
+        "options": {
+          "dataPropertyAttachmentsPrefixName": "attachment_",
+          "downloadAttachments": true
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        336,
+        192
+      ],
+      "id": "2d893144-b48d-4655-82f2-e3cae5c2075c",
+      "name": "Get a message (extract attachment)",
+      "webhookId": "e077c8de-3117-4c86-bbc7-f5b02046f0cd",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "dDrwXXCy7Ml45LfF",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "9a877767-d4cc-4a08-b7bd-9d70561026fc",
+              "leftValue": "={{ $binary.attachment_0.mimeType }}",
+              "rightValue": "pdf",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            },
+            {
+              "id": "f57939b8-ecd0-41a7-8f42-9fcc1f643adc",
+              "leftValue": "={{ $binary.attachment_0.mimeType }}",
+              "rightValue": "image",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        528,
+        192
+      ],
+      "id": "9784868b-88b3-4d5e-b3c6-f82287d26ec5",
+      "name": "attachment type"
+    },
+    {
+      "parameters": {
+        "content": "STAGE 1 - MAIL EXTRACTION\n",
+        "height": 368,
+        "width": 816,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -96,
+        64
+      ],
+      "typeVersion": 1,
+      "id": "e5f46933-bbae-4bed-bba8-5592fa9a1d62",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\n\n// Get binary keys\nconst binaries = item.binary || {};\nconst keys = Object.keys(binaries);\n\n// Find attachment\nconst fileKey = keys.find(k => k.startsWith(\"attachment_\"));\n\nif (!fileKey) {\n  throw new Error(\"No attachment found\");\n}\n\nconst file = binaries[fileKey];\n\n// Convert binary buffer to base64\nconst base64Data = await this.helpers.getBinaryDataBuffer(0, fileKey)\n  .then(buffer => buffer.toString('base64'));\n\nreturn {\n  json: {\n    base64Data,\n    mimeType: file.mimeType,\n    fileName: file.fileName\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        176
+      ],
+      "id": "c992d0d9-5663-4857-8d5e-af766b3e1859",
+      "name": "Convert to base64"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const base64Data = $json.base64Data;\nconst mimeType = $json.mimeType;\nconst GEMINI_API_KEY = 'AIzaSyB3237Y0jcjNsbYZUvXC8yVnsImKjAzOIo';\n\nconst systemPrompt = `\nYou are an invoice data extraction assistant.\nAnalyse the provided invoice document and extract ALL of the following fields.\n\nReturn ONLY a valid XML block — no explanation, no markdown, no extra text.\n\nRequired XML structure:\n<invoice>\n<vendor_name></vendor_name>\n<vendor_address></vendor_address>\n<vendor_email></vendor_email>\n<invoice_number></invoice_number>\n<invoice_date></invoice_date> <!-- Format: YYYY-MM-DD -->\n<due_date></due_date> <!-- Format: YYYY-MM-DD -->\n<currency></currency> <!-- ISO code e.g. USD, INR, GBP -->\n<subtotal></subtotal>\n<tax_amount></tax_amount>\n<total_amount></total_amount>\n<line_items>\n<item>\n<description></description>\n<quantity></quantity>\n<unit_price></unit_price>\n<line_total></line_total>\n</item>\n</line_items>\n<payment_terms></payment_terms>\n<bank_details></bank_details>\n</invoice>\n\nIf a field is not found, leave the tag empty. Do not omit tags.\n`;\n\nconst payload = {\ncontents: [{\nparts: [\n{ text: systemPrompt },\n{ inline_data: { mime_type: mimeType, data: base64Data } }]\n}],\ngenerationConfig: {\n  \ntemperature: 0.1, // Low temperature = deterministic, consistent output\nmaxOutputTokens: 2048,\n  \n}\n};\n\nreturn {\n  json:\n  { payload, \n    apiKey: GEMINI_API_KEY\n  } \n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1056,
+        176
+      ],
+      "id": "5b4e7e42-2748-486e-ad88-255f28180db9",
+      "name": "Build Gemini Prompt"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=AIzaSyB3237Y0jcjNsbYZUvXC8yVnsImKjAzOIo",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "={{ $json.apiKey }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1280,
+        176
+      ],
+      "id": "d07db6b0-2f47-4a27-b5b6-3a7f2628ff3d",
+      "name": "Call Gemini Vision API",
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const rawText =\n$json.candidates?.[0]?.content?.parts?.[0]?.text || \"\";\n\nlet xmlText = rawText\n  .replace(/```xml/gi, \"\")\n  .replace(/```/g, \"\")\n  .trim();\n\nif (!xmlText.startsWith(\"<invoice>\")) {\n  throw new Error(\"Gemini did not return valid XML\");\n}\n\nreturn {\n  json: {\n    xmlString: xmlText,\n    rawGeminiResponse: rawText\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1504,
+        176
+      ],
+      "id": "72c32c75-c286-4b42-bca5-395d8fafed00",
+      "name": "Extract XML from Gemini Response"
+    },
+    {
+      "parameters": {
+        "dataPropertyName": "xmlString",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.xml",
+      "typeVersion": 1,
+      "position": [
+        1728,
+        176
+      ],
+      "id": "646622e5-bde0-4706-9607-8234a3724258",
+      "name": "Parse XML to JSON"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "9c502e0c-2953-4472-8e41-4031317275c3",
+              "leftValue": "={{ $json.invoice.vendor_name }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "8459ea88-7b00-4f72-bcbe-627be6cba05e",
+              "leftValue": "={{ $json.invoice.total_amount }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "b86fff0a-b471-4a58-b1c1-c930991b8d14",
+              "leftValue": "={{ $json.invoice.invoice_number }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1936,
+        176
+      ],
+      "id": "0e6c5170-3dcb-4656-84eb-fe89f7019f1f",
+      "name": "Validate Required Fields"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const inv = $json.invoice;\nconst orgId = \"60070563462\";\n\n// Helper: clean numeric string → float\nconst toFloat = (s) => parseFloat(String(s).replace(/[^0-9.]/g, '')) || 0;\n// Map line items (handle single item vs array)\nconst rawItems = Array.isArray(inv.line_items?.item)\n? inv.line_items.item\n: [inv.line_items?.item].filter(Boolean);\n\nconst lineItems = rawItems.map(item => ({\ndescription: item.description || 'Service',\nquantity: toFloat(item.quantity) || 1,\nrate: toFloat(item.unit_price),\nitem_total: toFloat(item.line_total),\n}));\n\nconst zohoBillPayload = {\nvendor_name: inv.vendor_name,\nbill_number: inv.invoice_number,\ndate: inv.invoice_date, // YYYY-MM-DD\ndue_date: inv.due_date,\ncurrency_code: inv.currency || 'USD',\nsub_total: toFloat(inv.subtotal),\ntax_total: toFloat(inv.tax_amount),\ntotal: toFloat(inv.total_amount),\nline_items: lineItems,\nnotes: `Auto-imported via n8n on ${new Date().toISOString()}`,\n};\n\nreturn { json: { zohoBillPayload, orgId }};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2272,
+        160
+      ],
+      "id": "50b5130c-dffb-4935-9f20-899a8c4424bd",
+      "name": "Map Invoice to Zoho Schema",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "method": "=GET",
+        "url": "=https://www.zohoapis.in/books/v3/contacts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "organization_id",
+              "value": "={{ $json.orgId }}"
+            },
+            {
+              "name": "contact_name",
+              "value": "={{ $json.zohoBillPayload.vendor_name }}"
+            },
+            {
+              "name": "contact_type",
+              "value": "vendor"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2464,
+        160
+      ],
+      "id": "5341b9a6-e1a4-4909-be70-4a62728a6d21",
+      "name": "GET contacts",
+      "alwaysOutputData": true,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "OfHX45CJplcKoGCx",
+          "name": "zoho"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const contacts = $json.contacts || [];\n\nconst orgId = $('Map Invoice to Zoho Schema').item.json.orgId;\nconst payload = $('Map Invoice to Zoho Schema').item.json.zohoBillPayload;\n\nlet vendorId;\n\nif (contacts.length > 0) {\n// Vendor found — use existing ID\nvendorId = contacts[0].contact_id;\n} else {\n// Vendor not found — will need to create (set flag for next node)\nvendorId = null;\n}\n\nreturn { \n  json: \n  {vendorId, payload, orgId, needsCreation: vendorId === null \n  } \n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2672,
+        160
+      ],
+      "id": "da9e7952-3950-4a05-a9cb-5f5d452c1cbd",
+      "name": "Find vendor"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "52354d39-80ef-49e1-9980-8b7ee3b64841",
+              "leftValue": "={{ $json.needsCreation }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2880,
+        160
+      ],
+      "id": "6cef035c-cdef-487a-815d-1706eccf3d1c",
+      "name": "vendor creation needed?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://www.zohoapis.in/books/v3/contacts?organization_id={{ $json.orgId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "{\n  \"Content-Type\": \"application/json\"\n}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"contact_name\": \"{{ $json.payload.vendor_name }}\",\n  \"contact_type\": \"vendor\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3120,
+        48
+      ],
+      "id": "2d3e7bff-0abb-4099-b838-407b87852009",
+      "name": "Create Vendor",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "OfHX45CJplcKoGCx",
+          "name": "zoho"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "STAGE 2 - GEMINI CONNECTION AND TEXT EXTRACTION",
+        "height": 480,
+        "width": 1392,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        768,
+        16
+      ],
+      "typeVersion": 1,
+      "id": "0b48d123-8fbb-4c02-86c6-e62a924190d8",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://www.zohoapis.in/books/v3/bills?organization_id={{$json.orgId}}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "{\n  \"Content-Type\": \"application/json\"\n}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"vendor_id\": \"{{ $json.vendorId }}\",\n  \"bill_number\": \"{{ $json.payload.bill_number }}\",\n  \"date\": \"{{ $json.payload.date }}\",\n  \"due_date\": \"{{ $json.payload.due_date }}\",\n  \"currency_code\": \"{{ $json.payload.currency_code }}\",\n  \"line_items\": {{\n    JSON.stringify(\n      $json.payload.line_items.map(item => ({\n        ...item,\n        account_id: \"3781585000000000558\"\n      }))\n    )\n  }},\n  \"notes\": \"{{ $json.payload.notes }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3360,
+        176
+      ],
+      "id": "b0b3dae9-8afc-49cd-9bf3-de37187401d8",
+      "name": "Create Bill",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "OfHX45CJplcKoGCx",
+          "name": "zoho"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "STAGE-3 CREATING THE BILL",
+        "height": 480,
+        "width": 1296,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2192,
+        16
+      ],
+      "typeVersion": 1,
+      "id": "fac60b06-949e-465d-8a61-7b0083ebbb37",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "7a052bee-0a59-42d7-959e-eb3a2b06114c",
+              "leftValue": "={{ $json.bill.status }}",
+              "rightValue": "draft",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3552,
+        176
+      ],
+      "id": "86ea164e-8dfa-44f5-9d36-18abb0bcb840",
+      "name": "bill status"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://www.zohoapis.in/books/v3/bills/{{ $json.bill.bill_id }}/submit",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "organization_id",
+              "value": "={{ $('Map Invoice to Zoho Schema').item.json.orgId }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3824,
+        80
+      ],
+      "id": "89b085d4-b236-4b26-8bbb-6b25268d7a5a",
+      "name": "move it to open",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "OfHX45CJplcKoGCx",
+          "name": "zoho"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $node[\"Gmail Trigger\"].json[\"From\"].split(\"<\")[1].replace(\">\", \"\") }}",
+        "subject": "=Invoice Received & Logged — {{ $('Parse XML to JSON').item.json.invoice.invoice_number }}",
+        "message": "=<p>Dear {{ $('Parse XML to JSON').item.json.invoice.vendor_name }},</p>\n\n<p>Thank you for sending your invoice. We have successfully received and logged the following in our accounts payable system:</p>\n\n<table border='1' cellpadding='6' style='border-collapse:collapse;'>\n<tr>\n<td><b>Invoice Number</b></td>\n<td>{{ $('Parse XML to JSON').item.json.invoice.invoice_number }}</td>\n</tr>\n\n<tr>\n<td><b>Invoice Date</b></td>\n<td>{{ $('Parse XML to JSON').item.json.invoice.invoice_date }}</td>\n</tr>\n\n<tr>\n<td><b>Amount Due</b></td>\n<td>\n{{ $('Parse XML to JSON').item.json.invoice.currency }}\n{{ $('Parse XML to JSON').item.json.invoice.total_amount }}\n</td>\n</tr>\n\n<tr>\n<td><b>Due Date</b></td>\n<td>{{ $('Parse XML to JSON').item.json.invoice.due_date }}</td>\n</tr>\n\n<tr>\n<td><b>ERP Reference</b></td>\n<td>{{ $('Create Bill').item.json.bill.bill_id }}</td>\n</tr>\n</table>\n\n<p>The invoice is now under review. Payment will be processed in accordance with the agreed payment terms.</p>\n\n<p>Best regards,<br/>Accounts Payable Team</p>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        4048,
+        192
+      ],
+      "id": "fa22a778-89a0-487c-9d30-e8b2d968b5d3",
+      "name": "Send Confirmation Mail",
+      "webhookId": "f512c139-f851-4d00-ab7b-587cbf3c23e5",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "dDrwXXCy7Ml45LfF",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "STAGE 4 - CONFIRMATION OF MAIL\n",
+        "height": 496,
+        "width": 752,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        3520,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "fe373188-fbe7-4c60-9616-09c0cf703127",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "sendTo": "=salonisawant04102006@gmail.com",
+        "subject": "Invoice attachment not in correct format",
+        "message": "The attachment is not in pdf or image.Please check.",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        832,
+        352
+      ],
+      "id": "94d3b3a3-647c-47aa-95b8-b2859ce6f32f",
+      "name": "Resend Attachment",
+      "webhookId": "dd592231-8d89-4d89-bbaa-7bbbc092739a",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "dDrwXXCy7Ml45LfF",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "=salonisawant04102006@gmail.com",
+        "subject": "Extraction Incomplete",
+        "message": "Invoice has some missing fields that are required for bill generation. ",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2272,
+        352
+      ],
+      "id": "1fdef0f8-8306-41d8-b6da-2b010e6bfb58",
+      "name": "Error message",
+      "webhookId": "1bdc4dad-8ed4-4b97-8248-5b64c58f17ae",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "dDrwXXCy7Ml45LfF",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "if subject : invoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "if subject : invoice": {
+      "main": [
+        [
+          {
+            "node": "Get a message (extract attachment)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get a message (extract attachment)": {
+      "main": [
+        [
+          {
+            "node": "attachment type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "attachment type": {
+      "main": [
+        [
+          {
+            "node": "Convert to base64",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Resend Attachment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to base64": {
+      "main": [
+        [
+          {
+            "node": "Build Gemini Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Gemini Prompt": {
+      "main": [
+        [
+          {
+            "node": "Call Gemini Vision API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Gemini Vision API": {
+      "main": [
+        [
+          {
+            "node": "Extract XML from Gemini Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract XML from Gemini Response": {
+      "main": [
+        [
+          {
+            "node": "Parse XML to JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse XML to JSON": {
+      "main": [
+        [
+          {
+            "node": "Validate Required Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Required Fields": {
+      "main": [
+        [
+          {
+            "node": "Map Invoice to Zoho Schema",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Invoice to Zoho Schema": {
+      "main": [
+        [
+          {
+            "node": "GET contacts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET contacts": {
+      "main": [
+        [
+          {
+            "node": "Find vendor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find vendor": {
+      "main": [
+        [
+          {
+            "node": "vendor creation needed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "vendor creation needed?": {
+      "main": [
+        [
+          {
+            "node": "Create Vendor",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Bill",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Vendor": {
+      "main": [
+        [
+          {
+            "node": "Create Bill",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Bill": {
+      "main": [
+        [
+          {
+            "node": "bill status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "bill status": {
+      "main": [
+        [
+          {
+            "node": "move it to open",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Confirmation Mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "move it to open": {
+      "main": [
+        [
+          {
+            "node": "Send Confirmation Mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "timeSavedPerExecution": 5,
+    "errorWorkflow": "9MYM7LjW5t8slaxt"
+  },
+  "versionId": "1f9cbda1-8427-4193-b604-54ba9629bb23",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "e6ef09393b0594b25d32c49be7f86c2d204396e5fcb971c7a2d7ae5a315cde43"
+  },
+  "id": "bCxRdID8S3Y2p5ME",
+  "tags": []
+}
