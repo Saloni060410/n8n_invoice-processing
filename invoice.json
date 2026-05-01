@@ -182,7 +182,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=AIzaSyB3237Y0jcjNsbYZUvXC8yVnsImKjAzOIo",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=YOUR_GEMINI_KEY",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
