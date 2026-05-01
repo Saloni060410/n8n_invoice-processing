@@ -45,6 +45,8 @@ If the attachment is not a PDF or image, the workflow sends a notification email
 
 - [invoice.json](invoice.json): the n8n workflow export
 - [README.md](README.md): project documentation
+- [workflow_view.png](workflow_view.png): a quick view of how the workflow looks
+- [Saloni-self_assessment.pdf](Saloni-self_assessment.pdf): what problems I faced, how I solved it and the final output
 
 ## Prerequisites
 
